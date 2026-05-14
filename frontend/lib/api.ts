@@ -140,7 +140,7 @@ async function mebelFetcher<T>(path: string, options: RequestInit = {}): Promise
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: token } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   })

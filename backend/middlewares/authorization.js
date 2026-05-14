@@ -3,7 +3,7 @@ require('dotenv').config();
 
 function authMiddleware(req, res, next) {
     try {
-
+        console.log(req.body,req.headers);
         const authHeader = req.headers.authorization;
 
         if (!authHeader) {

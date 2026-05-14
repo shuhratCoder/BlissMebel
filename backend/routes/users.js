@@ -7,7 +7,7 @@ const bcrypt = require('bcrypt');
 require('dotenv').config();
 
 
-router.post('/login',authMiddleware, asyncHandler(async (req, res) => {
+router.post('/login', asyncHandler(async (req, res) => {
     try {
         const {username, password} = req.body;
         const user = await User.findOne({where: {username}});
