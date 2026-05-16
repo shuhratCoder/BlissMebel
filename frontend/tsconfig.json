@@ -5,25 +5,23 @@
       "dom.iterable",
       "esnext"
     ],
-    "moduleResolution": "bundler",
-    "module": "ESNext",
-    "target": "ES6",
-    "jsx": "preserve",
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "noEmit": true,
     "incremental": true,
+    "module": "esnext",
     "esModuleInterop": true,
+    "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "jsx": "preserve",
     "plugins": [
       {
         "name": "next"
       }
     ],
     "baseUrl": ".",
-     "ignoreDeprecations": "6.0",
     "paths": {
       "@/*": ["./*"]
     },

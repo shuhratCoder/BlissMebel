@@ -401,27 +401,82 @@ const MODAL_SIZES = {
   xl: 'max-w-2xl',
 }
 
+// Focusable selector used for the focus-trap inside Modal.
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function Modal({ open, onClose, title, children, footer, size = 'md' }: ModalProps) {
   const [mounted, setMounted] = React.useState(false)
+  const panelRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
     setMounted(true)
   }, [])
 
+  // Lock body scroll while open.
   React.useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
     }
-    if (open) document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
+  }, [open])
+
+  // Focus trap + ESC + initial focus.
+  React.useEffect(() => {
+    if (!open) return
+    const panel = panelRef.current
+    const prevActive = document.activeElement as HTMLElement | null
+
+    // Move focus into the panel.
+    const focusables = panel?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+    focusables?.[0]?.focus()
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !panel) return
+
+      const items = Array.from(
+        panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter((el) => !el.hasAttribute('disabled'))
+      if (items.length === 0) return
+
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement as HTMLElement | null
+
+      if (e.shiftKey && active === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handler)
+    return () => {
+      document.removeEventListener('keydown', handler)
+      prevActive?.focus?.()
+    }
   }, [open, onClose])
 
   if (!open || !mounted) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4"
+    >
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div
+        ref={panelRef}
         className={cn(
           'relative bg-white shadow-xl w-full max-h-[92vh] sm:max-h-[90vh] overflow-hidden flex flex-col',
           'rounded-t-2xl sm:rounded-2xl',
@@ -430,7 +485,12 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
       >
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-100 shrink-0">
           <h3 className="font-semibold text-gray-900 text-sm sm:text-base">{title}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+          >
             ✕
           </button>
         </div>

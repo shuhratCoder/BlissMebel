@@ -8,6 +8,12 @@ const nextConfig = {
         source: '/mebel/:path*',
         destination: `${backend}/mebel/:path*`,
       },
+      {
+        // Proxy to notify.eskiz.uz to bypass browser CORS.
+        // Server-to-server requests don't need CORS headers.
+        source: '/eskiz/:path*',
+        destination: 'https://notify.eskiz.uz/api/:path*',
+      },
     ]
   },
 }

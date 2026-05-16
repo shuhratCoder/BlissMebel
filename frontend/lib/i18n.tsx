@@ -348,13 +348,28 @@ const ru: Dict = {
   'sms.choosePh': 'Выберите клиента',
   'sms.loadingPh': 'Загрузка...',
   'sms.defaultBulk':
-    'Уважаемый {name}, у вас имеется задолженность {duty}. Просим не забыть об оплате. Спасибо!',
+    "Assalomu alaykum hurmatli {name}! Sizning {duty} qarzdorligingiz mavjud. Savdo aloqalarimizni buzilmasligi uchun sizdan bugun qarzdorligingizni to'lab berishingizni so'raymiz. Hurmat bilan BlissMebel jamoasi. Ma'lumot uchun telefon raqamlar: 933101313 ; 995277307",
   'sms.placeholdersHint':
     'Кнопками ниже вставьте имя или долг — они заменятся данными каждого клиента.',
   'sms.insertName': 'Имя клиента',
   'sms.insertDuty': 'Сумма долга',
   'sms.insertHint': 'Вставить в текст',
   'sms.previewFor': 'Предпросмотр для {name}',
+
+  // Eskiz auth
+  'eskiz.title': 'Авторизация Eskiz',
+  'eskiz.desc': 'Введите email и пароль от кабинета notify.eskiz.uz. Токен действует 30 дней и обновляется автоматически.',
+  'eskiz.password': 'Пароль',
+  'eskiz.emailRequired': 'Укажите email',
+  'eskiz.emailInvalid': 'Некорректный email',
+  'eskiz.passwordRequired': 'Укажите пароль',
+  'eskiz.submit': 'Войти в Eskiz',
+  'eskiz.invalidCreds': 'Неверный email или пароль',
+  'eskiz.required': 'Войдите в Eskiz, чтобы отправлять SMS',
+  'eskiz.expired': 'Сессия Eskiz истекла. Войдите заново.',
+  'eskiz.connected': 'Eskiz подключён',
+  'eskiz.logout': 'Выйти из Eskiz',
+  'eskiz.balance': 'Баланс',
 
   // toasts
   'toast.chooseRecipients': 'Выберите получателей',
@@ -363,6 +378,8 @@ const ru: Dict = {
   'toast.smsSent': 'SMS отправлено',
   'toast.smsSentN': 'SMS отправлено: {n}',
   'toast.debtorsWillReceive': 'Должники получат сообщение',
+  'toast.noValidPhones': 'Нет получателей с корректным номером телефона',
+  'toast.skippedInvalidPhones': 'Пропущено получателей с неверным номером: {n}',
   'toast.productAdded': 'Товар добавлен',
   'toast.productUpdated': 'Товар обновлён',
   'toast.productDeleted': 'Товар удалён',
@@ -732,13 +749,28 @@ const uz: Dict = {
   'sms.choosePh': 'Mijozni tanlang',
   'sms.loadingPh': 'Yuklanmoqda...',
   'sms.defaultBulk':
-    "Hurmatli {name}, sizda {duty} miqdorida qarz mavjud. To'lov haqida unutmang. Rahmat!",
+    "Assalomu alaykum hurmatli {name}! Sizning {duty} qarzdorligingiz mavjud. Savdo aloqalarimizni buzilmasligi uchun sizdan bugun qarzdorligingizni to'lab berishingizni so'raymiz. Hurmat bilan BlissMebel jamoasi. Ma'lumot uchun telefon raqamlar: 933101313 ; 995277307",
   'sms.placeholdersHint':
     "Pastdagi tugmalar bilan ism yoki qarzni qo'shing — har bir mijoz uchun avtomatik almashtiriladi.",
   'sms.insertName': 'Mijoz ismi',
   'sms.insertDuty': 'Qarz miqdori',
   'sms.insertHint': "Matnga qo'shish",
   'sms.previewFor': '{name} uchun ko\'rib chiqish',
+
+  // Eskiz auth
+  'eskiz.title': 'Eskiz avtorizatsiyasi',
+  'eskiz.desc': 'notify.eskiz.uz kabinetingiz email va parolini kiriting. Token 30 kun amal qiladi va avtomatik yangilanadi.',
+  'eskiz.password': 'Parol',
+  'eskiz.emailRequired': 'Email kiriting',
+  'eskiz.emailInvalid': "Noto'g'ri email",
+  'eskiz.passwordRequired': 'Parolni kiriting',
+  'eskiz.submit': 'Eskizga kirish',
+  'eskiz.invalidCreds': "Email yoki parol noto'g'ri",
+  'eskiz.required': 'SMS yuborish uchun Eskizga kiring',
+  'eskiz.expired': 'Eskiz sessiyasi tugadi. Qayta kiring.',
+  'eskiz.connected': 'Eskiz ulangan',
+  'eskiz.logout': 'Eskizdan chiqish',
+  'eskiz.balance': 'Balans',
 
   // toasts
   'toast.chooseRecipients': 'Qabul qiluvchilarni tanlang',
@@ -747,6 +779,8 @@ const uz: Dict = {
   'toast.smsSent': 'SMS yuborildi',
   'toast.smsSentN': 'SMS yuborildi: {n}',
   'toast.debtorsWillReceive': 'Qarzdorlar xabar oladi',
+  'toast.noValidPhones': "To'g'ri telefon raqami bo'lgan qabul qiluvchilar yo'q",
+  'toast.skippedInvalidPhones': "Noto'g'ri raqamli qabul qiluvchilar o'tkazildi: {n}",
   'toast.productAdded': "Mahsulot qo'shildi",
   'toast.productUpdated': 'Mahsulot yangilandi',
   'toast.productDeleted': "Mahsulot o'chirildi",

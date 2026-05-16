@@ -53,6 +53,36 @@ export const useAuthStore = create<AuthStore>()(
 )
 
 // ────────────────────────────────────────────────────────────
+// ESKIZ SMS STORE (notify.eskiz.uz)
+// ────────────────────────────────────────────────────────────
+interface EskizStore {
+  token: string | null
+  issuedAt: number | null // ms timestamp of last login/refresh (for proactive refresh)
+  setToken: (token: string) => void
+  clearToken: () => void
+}
+
+export const useEskizStore = create<EskizStore>()(
+  devtools(
+    persist(
+      (set) => ({
+        token: null,
+        issuedAt: null,
+        setToken: (token) =>
+          set({ token, issuedAt: Date.now() }, false, 'eskiz/setToken'),
+        clearToken: () =>
+          set({ token: null, issuedAt: null }, false, 'eskiz/clearToken'),
+      }),
+      {
+        name: 'eskiz-auth',
+        skipHydration: true,
+      },
+    ),
+    { name: 'EskizStore' },
+  ),
+)
+
+// ────────────────────────────────────────────────────────────
 // THEME STORE
 // ────────────────────────────────────────────────────────────
 export type Theme = 'light' | 'dark'

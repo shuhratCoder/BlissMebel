@@ -1,248 +1,232 @@
 'use client'
-// app/sms/page.tsx — Bulk + Individual SMS send
+// app/sms/page.tsx — Bulk SMS send (read-only template) via Eskiz
 
 import React from 'react'
-import { Send, Users, User, Phone, MessageSquare, UserCircle2, Wallet } from 'lucide-react'
-import { useCustomers, useOrders } from '@/hooks'
-import { useUIStore } from '@/store'
+import { Send, MessageSquare, CheckCircle2, LogOut, Wallet } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { useClients } from '@/hooks'
+import { useUIStore, useEskizStore } from '@/store'
 import { useT } from '@/lib/i18n'
 import { formatCurrency, formatPhone } from '@/lib/api'
+
+// SMS messages are always in Uzbek, so the currency word is fixed regardless
+// of the admin's UI language (which can be RU → "сум").
+function formatCurrencyUz(amount: number): string {
+  return (
+    new Intl.NumberFormat('uz-UZ', {
+      style: 'decimal',
+      maximumFractionDigits: 0,
+    }).format(amount) + " so'm"
+  )
+}
+import {
+  sendBatchSms,
+  getBalance,
+  normalizeUzPhone,
+  ensureFreshToken,
+  type BatchMessage,
+} from '@/lib/eskiz'
 import {
   Button,
-  Textarea,
-  Select,
   PageHeader,
   EmptyState,
   Skeleton,
 } from '@/components/ui'
-import type { Customer } from '@/types'
+import { EskizAuthModal } from '@/components/EskizAuthModal'
+import type { Client } from '@/types'
 import { cn } from '@/lib/utils'
 
-function renderTemplate(tpl: string, c: Customer, debt: number): string {
-  return tpl
-    .replace(/\{name\}/g, c.name ?? '')
-    .replace(/\{duty\}/g, formatCurrency(debt))
-}
-
-// Insert `token` at the textarea's caret. Falls back to appending if no ref.
-function insertAtCaret(
-  textarea: HTMLTextAreaElement | null,
-  value: string,
-  token: string,
-  setValue: (v: string) => void,
-) {
-  if (!textarea) {
-    setValue(value + token)
-    return
-  }
-  const start = textarea.selectionStart ?? value.length
-  const end = textarea.selectionEnd ?? value.length
-  const next = value.slice(0, start) + token + value.slice(end)
-  setValue(next)
-  // Restore caret right after the inserted token on next paint.
-  requestAnimationFrame(() => {
-    textarea.focus()
-    const pos = start + token.length
-    textarea.setSelectionRange(pos, pos)
+function renderTemplateLabels(tpl: string): React.ReactNode[] {
+  const parts = tpl.split(/(\{name\}|\{duty\})/g)
+  return parts.map((part, i) => {
+    if (part === '{name}') {
+      return (
+        <strong key={i} className="font-bold text-gray-900">
+          {'{mijozning ismi}'}
+        </strong>
+      )
+    }
+    if (part === '{duty}') {
+      return (
+        <strong key={i} className="font-bold text-gray-900">
+          {'{qarz miqdori}'}
+        </strong>
+      )
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>
   })
 }
 
-function InsertTokensRow({
-  onInsert,
-}: {
-  onInsert: (token: '{name}' | '{duty}') => void
-}) {
-  const { t } = useT()
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-[11px] text-gray-400 mr-1">{t('sms.insertHint')}:</span>
-      <button
-        type="button"
-        onClick={() => onInsert('{name}')}
-        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-xs font-medium border border-blue-100 hover:bg-blue-100 transition-colors"
-      >
-        <UserCircle2 size={12} />
-        {t('sms.insertName')}
-      </button>
-      <button
-        type="button"
-        onClick={() => onInsert('{duty}')}
-        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 text-amber-700 text-xs font-medium border border-amber-100 hover:bg-amber-100 transition-colors"
-      >
-        <Wallet size={12} />
-        {t('sms.insertDuty')}
-      </button>
-    </div>
-  )
-}
-
-const SMS_MAX = 500
-
-type Mode = 'bulk' | 'individual'
-
 export default function SmsPanelPage() {
-  const { t, lang } = useT()
-  const [mode, setMode] = React.useState<Mode>('bulk')
-  const { data: customers, isLoading: loadingCustomers } = useCustomers()
-  const { data: orders, isLoading: loadingOrders } = useOrders()
-  const isLoading = loadingCustomers || loadingOrders
+  const { t } = useT()
+  const { data: clients, isLoading } = useClients()
   const addToast = useUIStore((s) => s.addToast)
+  const eskizToken = useEskizStore((s) => s.token)
+  const clearEskizToken = useEskizStore((s) => s.clearToken)
 
-  // Per-customer debt derived from orders
-  const debtMap = React.useMemo(() => {
-    const m = new Map<number, number>()
-    if (!orders) return m
-    for (const o of orders) {
-      const d = Math.max(0, (o.totalAmount ?? 0) - (o.paidAmount ?? 0))
-      m.set(o.customerId, (m.get(o.customerId) ?? 0) + d)
-    }
-    return m
-  }, [orders])
-  const getDebt = React.useCallback(
-    (c: Customer) => debtMap.get(c.id) ?? 0,
-    [debtMap],
-  )
+  // Modal is open when there's no token, or when the user manually re-auths.
+  const [authModalOpen, setAuthModalOpen] = React.useState(false)
+  const [sending, setSending] = React.useState(false)
 
-  // ── Bulk state ───────────────────────────────────────────────
-  const debtors = React.useMemo(
-    () => (customers ?? []).filter((c) => getDebt(c) > 0),
-    [customers, getDebt],
-  )
-  const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set())
-  const [bulkMessage, setBulkMessage] = React.useState(() => t('sms.defaultBulk'))
-  const [bulkUserEdited, setBulkUserEdited] = React.useState(false)
-
+  // Open modal whenever the token becomes null (initial mount or after 401).
   React.useEffect(() => {
-    if (!bulkUserEdited) setBulkMessage(t('sms.defaultBulk'))
-  }, [lang, bulkUserEdited, t])
+    if (!eskizToken) setAuthModalOpen(true)
+  }, [eskizToken])
 
-  // ── Individual state ─────────────────────────────────────────
-  const [individualId, setIndividualId] = React.useState<string>('')
-  const [individualMessage, setIndividualMessage] = React.useState('')
+  // Proactively refresh the token on mount if it's close to expiry.
+  React.useEffect(() => {
+    if (eskizToken) ensureFreshToken()
+  }, [eskizToken])
+
+  // Balance — refetched on mount (page entry) and after each successful send.
+  const balanceQuery = useQuery({
+    queryKey: ['eskiz', 'balance'],
+    queryFn: getBalance,
+    enabled: !!eskizToken,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+
+  const getDebt = (c: Client) => c.totalDebt ?? 0
+
+  const debtors = React.useMemo(
+    () => (clients ?? []).filter((c) => getDebt(c) > 0),
+    [clients],
+  )
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
+  const template = t('sms.defaultBulk')
 
   const toggleAll = () => {
     if (selectedIds.size === debtors.length) setSelectedIds(new Set())
     else setSelectedIds(new Set(debtors.map((c) => c.id)))
   }
 
+  const renderMessageFor = (c: Client): string =>
+    template
+      .replace(/\{name\}/g, c.name ?? '')
+      .replace(/\{duty\}/g, formatCurrencyUz(getDebt(c)))
+
   const handleBulkSend = async () => {
     if (selectedIds.size === 0) {
       addToast({ type: 'warning', title: t('toast.chooseRecipients') })
       return
     }
-    if (bulkMessage.trim().length < 5) {
-      addToast({ type: 'warning', title: t('toast.messageShort') })
+    if (!eskizToken) {
+      setAuthModalOpen(true)
       return
     }
-    addToast({
-      type: 'success',
-      title: t('toast.smsSentN', { n: selectedIds.size }),
-      message: t('toast.debtorsWillReceive'),
-    })
-    setSelectedIds(new Set())
-  }
 
-  const handleIndividualSend = async () => {
-    if (!individualId) {
-      addToast({ type: 'warning', title: t('toast.chooseClient') })
-      return
-    }
-    if (individualMessage.trim().length < 5) {
-      addToast({ type: 'warning', title: t('toast.messageShort') })
-      return
-    }
-    const target = (customers ?? []).find(
-      (c) => String(c.id) === individualId,
-    )
-    addToast({
-      type: 'success',
-      title: t('toast.smsSent'),
-      message: target?.name ?? '',
+    const selected = debtors.filter((c) => selectedIds.has(c.id))
+    const messages: BatchMessage[] = []
+    let skipped = 0
+
+    selected.forEach((c) => {
+      const norm = normalizeUzPhone(c.phone)
+      if (!norm) {
+        skipped++
+        return
+      }
+      messages.push({
+        user_sms_id: `sms${messages.length + 1}`,
+        to: Number(norm),
+        text: renderMessageFor(c),
+      })
     })
-    setIndividualMessage('')
-    setIndividualId('')
+
+    if (messages.length === 0) {
+      addToast({ type: 'warning', title: t('toast.noValidPhones') })
+      return
+    }
+    if (skipped > 0) {
+      addToast({
+        type: 'warning',
+        title: t('toast.skippedInvalidPhones', { n: skipped }),
+      })
+    }
+
+    setSending(true)
+    try {
+      await sendBatchSms(messages)
+      addToast({
+        type: 'success',
+        title: t('toast.smsSentN', { n: messages.length }),
+        message: t('toast.debtorsWillReceive'),
+      })
+      setSelectedIds(new Set())
+      // Balance changes after a successful batch — pull the new value.
+      balanceQuery.refetch()
+    } catch (err: unknown) {
+      const status =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { status?: number } }).response?.status
+          : undefined
+      // 401 already handled by the axios interceptor (clears the token and
+      // re-opens the modal via the effect on `eskizToken`).
+      if (status !== 401) {
+        addToast({ type: 'error', title: t('errors.generic') })
+      }
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
     <div className="space-y-5 max-w-5xl">
-      <PageHeader title={t('sms.title')} description={t('sms.desc')} />
+      <PageHeader
+        title={t('sms.title')}
+        description={t('sms.desc')}
+        actions={
+          eskizToken ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-100 rounded-md px-2 py-1">
+                <CheckCircle2 size={12} /> {t('eskiz.connected')}
+              </span>
+              <span className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-md px-2 py-1">
+                <Wallet size={12} />
+                {t('eskiz.balance')}:{' '}
+                <strong>
+                  {balanceQuery.isLoading
+                    ? '...'
+                    : balanceQuery.data != null
+                      ? formatCurrency(balanceQuery.data)
+                      : '—'}
+                </strong>
+              </span>
+              <button
+                type="button"
+                onClick={clearEskizToken}
+                className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 border border-gray-200 rounded-md px-2 py-1 transition-colors"
+              >
+                <LogOut size={12} /> {t('eskiz.logout')}
+              </button>
+            </div>
+          ) : null
+        }
+      />
 
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div className="flex border-b border-gray-100">
-          <ModeTab
-            active={mode === 'bulk'}
-            icon={<Users size={14} />}
-            label={t('sms.tabBulk')}
-            onClick={() => setMode('bulk')}
-          />
-          <ModeTab
-            active={mode === 'individual'}
-            icon={<User size={14} />}
-            label={t('sms.tabIndividual')}
-            onClick={() => setMode('individual')}
-          />
-        </div>
-
         <div className="p-5">
-          {mode === 'bulk' && (
-            <BulkPanel
-              isLoading={isLoading}
-              debtors={debtors}
-              selectedIds={selectedIds}
-              setSelectedIds={setSelectedIds}
-              toggleAll={toggleAll}
-              message={bulkMessage}
-              setMessage={(v) => {
-                setBulkMessage(v)
-                setBulkUserEdited(true)
-              }}
-              onSend={handleBulkSend}
-              getDebt={getDebt}
-            />
-          )}
-
-          {mode === 'individual' && (
-            <IndividualPanel
-              isLoading={isLoading}
-              customers={customers ?? []}
-              selectedId={individualId}
-              setSelectedId={setIndividualId}
-              message={individualMessage}
-              setMessage={setIndividualMessage}
-              onSend={handleIndividualSend}
-            />
-          )}
+          <BulkPanel
+            isLoading={isLoading}
+            debtors={debtors}
+            selectedIds={selectedIds}
+            setSelectedIds={setSelectedIds}
+            toggleAll={toggleAll}
+            template={template}
+            onSend={handleBulkSend}
+            getDebt={getDebt}
+            sending={sending}
+            disabled={!eskizToken}
+          />
         </div>
       </div>
-    </div>
-  )
-}
 
-// ── Mode tab button ──────────────────────────────────────────
-function ModeTab({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px',
-        active
-          ? 'border-blue-600 text-blue-700'
-          : 'border-transparent text-gray-500 hover:text-gray-700',
-      )}
-    >
-      {icon}
-      {label}
-    </button>
+      <EskizAuthModal
+        open={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        required={!eskizToken}
+      />
+    </div>
   )
 }
 
@@ -253,28 +237,25 @@ function BulkPanel({
   selectedIds,
   setSelectedIds,
   toggleAll,
-  message,
-  setMessage,
+  template,
   onSend,
   getDebt,
+  sending,
+  disabled,
 }: {
   isLoading: boolean
-  debtors: Customer[]
-  selectedIds: Set<number>
-  setSelectedIds: React.Dispatch<React.SetStateAction<Set<number>>>
+  debtors: Client[]
+  selectedIds: Set<string>
+  setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>
   toggleAll: () => void
-  message: string
-  setMessage: (v: string) => void
+  template: string
   onSend: () => void
-  getDebt: (c: Customer) => number
+  getDebt: (c: Client) => number
+  sending: boolean
+  disabled: boolean
 }) {
   const { t } = useT()
-  const bulkTextareaRef = React.useRef<HTMLTextAreaElement>(null)
   const allSelected = debtors.length > 0 && selectedIds.size === debtors.length
-  const previewClient: Customer | null = React.useMemo(() => {
-    if (selectedIds.size === 0) return debtors[0] ?? null
-    return debtors.find((c) => selectedIds.has(c.id)) ?? null
-  }, [debtors, selectedIds])
 
   return (
     <div className="grid md:grid-cols-2 gap-5">
@@ -339,7 +320,7 @@ function BulkPanel({
                     <p className="text-[11px] text-gray-400">{formatPhone(c.phone)}</p>
                   </div>
                   <span className="text-[11px] text-red-500 font-medium shrink-0">
-                    {t('sms.debtBadge')}
+                    {formatCurrency(getDebt(c))}
                   </span>
                 </label>
               )
@@ -350,119 +331,21 @@ function BulkPanel({
         </p>
       </div>
 
-      {/* Message */}
+      {/* Message preview (read-only, with placeholder labels) */}
       <div className="space-y-2">
         <h3 className="text-sm font-semibold text-gray-700">{t('sms.message')}</h3>
-        <Textarea
-          ref={bulkTextareaRef}
-          rows={8}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          maxLength={SMS_MAX}
-          placeholder={t('sms.messagePh')}
-        />
-        <InsertTokensRow
-          onInsert={(token) =>
-            insertAtCaret(bulkTextareaRef.current, message, token, setMessage)
-          }
-        />
-        <p className="text-[11px] text-gray-400">{t('sms.placeholdersHint')}</p>
-        <div className="flex items-center justify-between text-xs text-gray-400">
-          <span>
-            {message.length} / {SMS_MAX}
-          </span>
-          <span>{t('sms.segments', { n: Math.ceil(message.length / 160) || 0 })}</span>
+
+        <div className="border border-gray-100 bg-gray-50 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
+          {renderTemplateLabels(template)}
         </div>
 
-        {previewClient && (
-          <div className="border border-blue-100 bg-blue-50/40 rounded-lg p-3 text-xs text-gray-700 space-y-1">
-            <p className="text-[11px] font-medium text-blue-700">
-              {t('sms.previewFor', { name: previewClient.name ?? '' })}
-            </p>
-            <p className="whitespace-pre-wrap text-gray-800">
-              {renderTemplate(message, previewClient, getDebt(previewClient))}
-            </p>
-          </div>
-        )}
-
-        <Button onClick={onSend} className="w-full" disabled={selectedIds.size === 0}>
+        <Button
+          onClick={onSend}
+          className="w-full"
+          disabled={selectedIds.size === 0 || disabled}
+          loading={sending}
+        >
           <Send size={14} /> {t('sms.sendN', { n: selectedIds.size })}
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-// ── Individual panel ─────────────────────────────────────────
-function IndividualPanel({
-  isLoading,
-  customers,
-  selectedId,
-  setSelectedId,
-  message,
-  setMessage,
-  onSend,
-}: {
-  isLoading: boolean
-  customers: Customer[]
-  selectedId: string
-  setSelectedId: (v: string) => void
-  message: string
-  setMessage: (v: string) => void
-  onSend: () => void
-}) {
-  const { t } = useT()
-  const indTextareaRef = React.useRef<HTMLTextAreaElement>(null)
-  const target = customers.find((c) => String(c.id) === selectedId)
-
-  return (
-    <div className="grid md:grid-cols-2 gap-5">
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-700">{t('sms.client')}</h3>
-        <Select
-          value={selectedId}
-          options={customers.map((c) => ({
-            value: String(c.id),
-            label: `${c.name ?? ''} — ${formatPhone(c.phone)}`,
-          }))}
-          placeholder={isLoading ? t('sms.loadingPh') : t('sms.choosePh')}
-          onChange={(e) => setSelectedId(e.target.value)}
-        />
-        {target && (
-          <div className="border border-gray-100 rounded-lg p-3 space-y-1.5 text-xs text-gray-600">
-            <p className="flex items-center gap-2">
-              <User size={12} /> <strong>{target.name}</strong>
-            </p>
-            <p className="flex items-center gap-2">
-              <Phone size={12} /> {formatPhone(target.phone)}
-            </p>
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-gray-700">{t('sms.message')}</h3>
-        <Textarea
-          ref={indTextareaRef}
-          rows={8}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          maxLength={SMS_MAX}
-          placeholder={t('sms.messagePhInd')}
-        />
-        <InsertTokensRow
-          onInsert={(token) =>
-            insertAtCaret(indTextareaRef.current, message, token, setMessage)
-          }
-        />
-        <div className="flex items-center justify-between text-xs text-gray-400">
-          <span>
-            {message.length} / {SMS_MAX}
-          </span>
-          <span>{t('sms.segments', { n: Math.ceil(message.length / 160) || 0 })}</span>
-        </div>
-        <Button onClick={onSend} className="w-full" disabled={!selectedId}>
-          <Send size={14} /> {t('sms.send')}
         </Button>
       </div>
     </div>

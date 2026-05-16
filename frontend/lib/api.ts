@@ -1,100 +1,110 @@
 
 import type { ApiResponse, Order } from '@/types'
 import { tStatic, useLangStore } from '@/lib/i18n'
+import { useAuthStore } from '@/store'
 
+// ── Base URLs ────────────────────────────────────────────────
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
+const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_API_URL ?? '/mebel'
+const MOKKY_BASE = process.env.NEXT_PUBLIC_MOKKY_BASE ?? ''
 
-// ── Core fetcher ─────────────────────────────────────────────
-async function fetcher<T>(
+// ── Unified fetcher ──────────────────────────────────────────
+// One implementation, three exported clients (`api`, `mebelApi`, `externalApi`)
+// that differ only in (baseUrl, authed, envelope).
+interface CoreFetchOptions extends Omit<RequestInit, 'body'> {
+  authed?: boolean
+  envelope?: boolean
+  body?: BodyInit | object | null
+}
+
+async function coreFetch<T>(
+  baseUrl: string,
   path: string,
-  options: RequestInit = {},
+  options: CoreFetchOptions = {},
 ): Promise<T> {
-  const token =
-    typeof window !== 'undefined'
-      ? (() => {
-          try {
-            const raw = localStorage.getItem('furniture-erp-auth')
-            return raw ? JSON.parse(raw)?.state?.token : null
-          } catch {
-            return null
-          }
-        })()
-      : null
+  const { authed = false, envelope = false, body, headers, ...rest } = options
 
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...options,
+  const token = authed ? useAuthStore.getState().token : null
+
+  // Build body — accept already-prepared FormData/string, otherwise JSON-encode.
+  let serializedBody: BodyInit | null | undefined
+  let autoJson = false
+  if (body == null) {
+    serializedBody = undefined
+  } else if (
+    typeof body === 'string' ||
+    body instanceof FormData ||
+    body instanceof Blob ||
+    body instanceof URLSearchParams ||
+    body instanceof ArrayBuffer
+  ) {
+    serializedBody = body as BodyInit
+  } else {
+    serializedBody = JSON.stringify(body)
+    autoJson = true
+  }
+
+  const res = await fetch(`${baseUrl}${path}`, {
+    ...rest,
+    body: serializedBody,
     headers: {
-      'Content-Type': 'application/json',
+      ...(autoJson ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
+      ...headers,
     },
   })
 
-  if (res.status === 401) {
-    // Clear auth and redirect
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('furniture-erp-auth')
-      window.location.href = '/login'
-    }
+  if (res.status === 401 && authed) {
+    // Drop auth state. AuthGuard observes isAuthenticated and triggers the
+    // client-side redirect — no full page reload.
+    useAuthStore.getState().logout()
     throw new Error(tStatic('errors.sessionExpired'))
   }
 
-  const json: ApiResponse<T> = await res.json()
-
-  if (!json.success) {
-    throw new Error(json.error ?? tStatic('errors.generic'))
+  if (envelope) {
+    const json: ApiResponse<T> = await res.json()
+    if (!json.success) throw new Error(json.error ?? tStatic('errors.generic'))
+    return json.data as T
   }
 
-  return json.data as T
-}
-
-// ── HTTP methods ─────────────────────────────────────────────
-export const api = {
-  get: <T>(path: string) => fetcher<T>(path),
-
-  post: <T>(path: string, body: unknown) =>
-    fetcher<T>(path, { method: 'POST', body: JSON.stringify(body) }),
-
-  put: <T>(path: string, body: unknown) =>
-    fetcher<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
-
-  patch: <T>(path: string, body: unknown) =>
-    fetcher<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
-
-  delete: <T>(path: string) => fetcher<T>(path, { method: 'DELETE' }),
-}
-
-// ── External REST client (mokky.dev) ─────────────────────────
-// Returns raw JSON (no { success, data } envelope).
-async function externalFetcher<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-  })
   if (!res.ok) {
     let message = tStatic('errors.code', { code: res.status })
     try {
-      const body = await res.json()
-      if (body?.message) message = body.message
+      const errBody = await res.json()
+      if (errBody?.message) message = errBody.message
     } catch {}
     throw new Error(message)
   }
+
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 
-export const externalApi = {
-  get: <T>(url: string) => externalFetcher<T>(url),
-  post: <T>(url: string, body: unknown) =>
-    externalFetcher<T>(url, { method: 'POST', body: JSON.stringify(body) }),
-  patch: <T>(url: string, body: unknown) =>
-    externalFetcher<T>(url, { method: 'PATCH', body: JSON.stringify(body) }),
-  delete: <T>(url: string) => externalFetcher<T>(url, { method: 'DELETE' }),
+function makeClient(baseUrl: string, opts: { authed: boolean; envelope: boolean }) {
+  const call = <T>(path: string, init: CoreFetchOptions = {}) =>
+    coreFetch<T>(baseUrl, path, { ...opts, ...init })
+  return {
+    get: <T>(path: string) => call<T>(path),
+    post: <T>(path: string, body: unknown) => call<T>(path, { method: 'POST', body: body as object }),
+    put: <T>(path: string, body: unknown) => call<T>(path, { method: 'PUT', body: body as object }),
+    patch: <T>(path: string, body: unknown) =>
+      call<T>(path, { method: 'PATCH', body: body as object }),
+    delete: <T>(path: string) => call<T>(path, { method: 'DELETE' }),
+  }
 }
 
-// ── Auth API (real backend, proxied via next.config.js rewrites) ──
-const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_API_URL ?? '/mebel'
+// `api` — generic backend with the `{ success, data }` envelope. Mostly legacy
+// callers (e.g. /api/sms/*). Authed by default.
+export const api = makeClient(BASE_URL, { authed: true, envelope: true })
 
+// `mebelApi` — real Mebel backend at /mebel/*. Authed; returns raw JSON.
+export const mebelApi = makeClient(AUTH_BASE, { authed: true, envelope: false })
+
+// `externalApi` — Mokky.dev test backend (full URLs). No auth, raw JSON.
+// `path` here is the FULL URL since callers pass `${MOKKY_BASE}/clients`.
+export const externalApi = makeClient('', { authed: false, envelope: false })
+
+// ── Login (no auth, no envelope) ─────────────────────────────
 export interface LoginResponse {
   token: string
   message: string
@@ -104,6 +114,8 @@ export async function loginRequest(
   username: string,
   password: string,
 ): Promise<LoginResponse> {
+  // Direct fetch (not coreFetch) so we can default the error message to
+  // `login.invalid` instead of the generic `errors.code` template.
   const res = await fetch(`${AUTH_BASE}/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -122,66 +134,12 @@ export async function loginRequest(
   return res.json() as Promise<LoginResponse>
 }
 
-// ── Mebel API (authenticated) ────────────────────────────────
-// Returns raw JSON, attaches Bearer token from the auth store.
-function readAuthToken(): string | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = localStorage.getItem('furniture-erp-auth')
-    return raw ? JSON.parse(raw)?.state?.token ?? null : null
-  } catch {
-    return null
-  }
-}
-
-async function mebelFetcher<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = readAuthToken()
-  const res = await fetch(`${AUTH_BASE}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  })
-
-  if (res.status === 401) {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('furniture-erp-auth')
-      window.location.href = '/login'
-    }
-    throw new Error(tStatic('errors.sessionExpired'))
-  }
-
-  if (!res.ok) {
-    let message = tStatic('errors.code', { code: res.status })
-    try {
-      const body = await res.json()
-      if (body?.message) message = body.message
-    } catch {}
-    throw new Error(message)
-  }
-
-  if (res.status === 204) return undefined as T
-  return res.json() as Promise<T>
-}
-
-export const mebelApi = {
-  get: <T>(path: string) => mebelFetcher<T>(path),
-  post: <T>(path: string, body: unknown) =>
-    mebelFetcher<T>(path, { method: 'POST', body: JSON.stringify(body) }),
-  patch: <T>(path: string, body: unknown) =>
-    mebelFetcher<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
-  put: <T>(path: string, body: unknown) =>
-    mebelFetcher<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
-  delete: <T>(path: string) => mebelFetcher<T>(path, { method: 'DELETE' }),
-}
-
-const MOKKY_BASE = 'https://8f894bfeecc56ce9.mokky.dev'
-export const CLIENTS_API_URL = `${MOKKY_BASE}/clients`
-export const ORDERS_API_URL = `${MOKKY_BASE}/orders`
-// Debt-repayment history (was /payments). The user's API uses /history.
-export const PAYMENTS_API_URL = `${MOKKY_BASE}/history`
+// ── Mokky.dev URL helpers ────────────────────────────────────
+// Only defined when NEXT_PUBLIC_MOKKY_BASE is set. In production these should
+// be replaced by real /mebel endpoints and eventually removed.
+export const CLIENTS_API_URL = MOKKY_BASE ? `${MOKKY_BASE}/clients` : ''
+export const ORDERS_API_URL = MOKKY_BASE ? `${MOKKY_BASE}/orders` : ''
+export const PAYMENTS_API_URL = MOKKY_BASE ? `${MOKKY_BASE}/history` : ''
 
 // ── Query key factory ────────────────────────────────────────
 export const queryKeys = {
