@@ -2,7 +2,7 @@
 // app/sms/page.tsx — Bulk SMS send (read-only template) via Eskiz
 
 import React from 'react'
-import { Send, MessageSquare, CheckCircle2, LogOut, Wallet } from 'lucide-react'
+import { Send, MessageSquare, CheckCircle2, Wallet, AlertTriangle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useClients } from '@/hooks'
 import { useUIStore, useEskizStore } from '@/store'
@@ -24,6 +24,7 @@ import {
   getBalance,
   normalizeUzPhone,
   ensureFreshToken,
+  ensureToken,
   type BatchMessage,
 } from '@/lib/eskiz'
 import {
@@ -32,7 +33,6 @@ import {
   EmptyState,
   Skeleton,
 } from '@/components/ui'
-import { EskizAuthModal } from '@/components/EskizAuthModal'
 import type { Client } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -62,20 +62,37 @@ export default function SmsPanelPage() {
   const { data: clients, isLoading } = useClients()
   const addToast = useUIStore((s) => s.addToast)
   const eskizToken = useEskizStore((s) => s.token)
-  const clearEskizToken = useEskizStore((s) => s.clearToken)
 
-  // Modal is open when there's no token, or when the user manually re-auths.
-  const [authModalOpen, setAuthModalOpen] = React.useState(false)
   const [sending, setSending] = React.useState(false)
+  const [authError, setAuthError] = React.useState<string | null>(null)
+  const [authBusy, setAuthBusy] = React.useState(false)
 
-  // Open modal whenever the token becomes null (initial mount or after 401).
+  // On mount (and whenever the stored token is missing), perform a server-side
+  // env login via /api/eskiz/login. If we already have a token, proactively
+  // refresh it if it's near expiry. No login modal — creds live in env.
   React.useEffect(() => {
-    if (!eskizToken) setAuthModalOpen(true)
-  }, [eskizToken])
-
-  // Proactively refresh the token on mount if it's close to expiry.
-  React.useEffect(() => {
-    if (eskizToken) ensureFreshToken()
+    let cancelled = false
+    async function bootstrap() {
+      try {
+        if (eskizToken) {
+          await ensureFreshToken()
+        } else {
+          setAuthBusy(true)
+          await ensureToken()
+        }
+        if (!cancelled) setAuthError(null)
+      } catch (e) {
+        if (!cancelled) {
+          setAuthError(e instanceof Error ? e.message : 'Eskiz auth failed')
+        }
+      } finally {
+        if (!cancelled) setAuthBusy(false)
+      }
+    }
+    bootstrap()
+    return () => {
+      cancelled = true
+    }
   }, [eskizToken])
 
   // Balance — refetched on mount (page entry) and after each successful send.
@@ -112,8 +129,13 @@ export default function SmsPanelPage() {
       return
     }
     if (!eskizToken) {
-      setAuthModalOpen(true)
-      return
+      // No token yet — try one more env login before giving up.
+      try {
+        await ensureToken()
+      } catch (e) {
+        setAuthError(e instanceof Error ? e.message : 'Eskiz auth failed')
+        return
+      }
     }
 
     const selected = debtors.filter((c) => selectedIds.has(c.id))
@@ -160,8 +182,8 @@ export default function SmsPanelPage() {
         err && typeof err === 'object' && 'response' in err
           ? (err as { response?: { status?: number } }).response?.status
           : undefined
-      // 401 already handled by the axios interceptor (clears the token and
-      // re-opens the modal via the effect on `eskizToken`).
+      // 401s are handled inside the axios interceptor (refresh → env-login →
+      // retry). Anything else is a real failure and worth surfacing.
       if (status !== 401) {
         addToast({ type: 'error', title: t('errors.generic') })
       }
@@ -192,17 +214,17 @@ export default function SmsPanelPage() {
                       : '—'}
                 </strong>
               </span>
-              <button
-                type="button"
-                onClick={clearEskizToken}
-                className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 border border-gray-200 rounded-md px-2 py-1 transition-colors"
-              >
-                <LogOut size={12} /> {t('eskiz.logout')}
-              </button>
             </div>
           ) : null
         }
       />
+
+      {authError && (
+        <div className="flex items-start gap-2 text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>{authError}</span>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
         <div className="p-5">
@@ -216,16 +238,10 @@ export default function SmsPanelPage() {
             onSend={handleBulkSend}
             getDebt={getDebt}
             sending={sending}
-            disabled={!eskizToken}
+            disabled={!eskizToken || authBusy}
           />
         </div>
       </div>
-
-      <EskizAuthModal
-        open={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
-        required={!eskizToken}
-      />
     </div>
   )
 }

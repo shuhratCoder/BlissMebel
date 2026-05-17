@@ -23,6 +23,7 @@ import {
   orderPaid,
   orderTotal,
 } from '@/components/MebelOrderDetailsView'
+import { ExportOrdersButton } from '@/components/ExportOrdersButton'
 import { cn } from '@/lib/utils'
 import type { ClientOrder } from '@/types'
 
@@ -126,8 +127,16 @@ export default function CustomerDetailPage() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <header className="px-4 py-3 border-b border-gray-100 text-sm font-semibold text-gray-700">
-          {t('customers.detailOrdersTitle')}
+        <header className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+          <span className="text-sm font-semibold text-gray-700">
+            {t('customers.detailOrdersTitle')}
+          </span>
+          <ExportOrdersButton
+            client={client}
+            orders={orders}
+            totalDebt={totalDebt}
+            ordinalById={ordinalById}
+          />
         </header>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

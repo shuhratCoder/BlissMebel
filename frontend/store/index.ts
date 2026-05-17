@@ -8,7 +8,6 @@ import type {
   ProductFilter,
   CustomerFilter,
   OrderFilter,
-  SmsFilter,
 } from '@/types'
 
 // ────────────────────────────────────────────────────────────
@@ -217,13 +216,6 @@ const defaultCustomerFilter: CustomerFilter = {
   pageSize: 10,
 }
 
-const defaultSmsFilter: SmsFilter = {
-  search: '',
-  status: undefined,
-  page: 1,
-  pageSize: 10,
-}
-
 const defaultOrderFilter: OrderFilter = {
   search: '',
   payment: 'all',
@@ -234,4 +226,3 @@ const defaultOrderFilter: OrderFilter = {
 export const useProductFilter = createFilterStore(defaultProductFilter)
 export const useCustomerFilter = createFilterStore(defaultCustomerFilter)
 export const useOrderFilter = createFilterStore(defaultOrderFilter)
-export const useSmsFilter = createFilterStore(defaultSmsFilter)

@@ -1,16 +1,16 @@
 // lib/eskiz.ts
 // Service for notify.eskiz.uz SMS API.
 //
-// Flow:
+// Auth flow (no UI prompt — creds live in server env):
 //   1. Token (valid 30 days) is stored in localStorage via useEskizStore.
 //   2. Request interceptor attaches `Authorization: Bearer <token>` to every call.
 //   3. If a response returns 401, we attempt ONE refresh via PATCH /auth/refresh.
 //      - Success → retry the original request with the new token.
-//      - Failure → clear the token and open the auth modal (user must enter
-//        email/password again). The SMS page reacts to `token === null` and
-//        renders <EskizAuthModal />.
-//   4. Before any send, callers can also use `ensureFreshToken()` to refresh
-//      proactively when expiry is within 24h.
+//      - Failure → fall back to `loginEskizFromEnv()` (server-side login via
+//        /api/eskiz/login, which reads ESKIZ_EMAIL / ESKIZ_PASSWORD) and retry
+//        once more. If that also fails, clear the token and surface the error.
+//   4. `ensureFreshToken()` proactively refreshes when expiry is within 24h,
+//      and `ensureToken()` performs a one-shot env login when there's no token.
 
 import axios, {
   AxiosError,
@@ -41,24 +41,20 @@ eskiz.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config
 })
 
-// Response interceptor — on 401, try ONE refresh + retry.
-// We tag the retried request so a second 401 doesn't loop.
 interface RetriableConfig extends InternalAxiosRequestConfig {
   __isRetry?: boolean
   __skipAuth?: boolean
 }
 
+// Response interceptor — on 401, try refresh first; if that fails, fall back
+// to env-login. Both branches set the new Bearer on the original request and
+// retry it exactly once.
 eskiz.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
     const original = error.config as RetriableConfig | undefined
     const status = error.response?.status
 
-    // Don't try to refresh if:
-    //   - no original request (network error)
-    //   - it's already a retry
-    //   - the failing call IS the auth/refresh itself
-    //   - the call was explicitly marked __skipAuth (e.g. login)
     if (
       !original ||
       original.__isRetry ||
@@ -68,17 +64,22 @@ eskiz.interceptors.response.use(
       return Promise.reject(error)
     }
 
+    let newToken: string
     try {
-      const newToken = await refreshToken()
-      original.__isRetry = true
-      original.headers.set('Authorization', `Bearer ${newToken}`)
-      return eskiz(original)
-    } catch (refreshErr) {
-      // Refresh failed → token is fully expired/invalid.
-      // Clearing the token triggers the auth modal on the SMS page.
-      useEskizStore.getState().clearToken()
-      return Promise.reject(refreshErr)
+      newToken = await refreshToken()
+    } catch {
+      // Refresh failed → token is fully invalid. Try a fresh login from env.
+      try {
+        newToken = await loginEskizFromEnv()
+      } catch (loginErr) {
+        useEskizStore.getState().clearToken()
+        return Promise.reject(loginErr)
+      }
     }
+
+    original.__isRetry = true
+    original.headers.set('Authorization', `Bearer ${newToken}`)
+    return eskiz(original)
   },
 )
 
@@ -90,24 +91,22 @@ interface EskizAuthResponse {
   token_type?: string
 }
 
-// Initial login — Eskiz expects FormData (multipart/form-data).
-export async function loginEskiz(email: string, password: string): Promise<string> {
-  const form = new FormData()
-  form.append('email', email)
-  form.append('password', password)
+// Login via the server-side route — creds are never sent from the browser.
+export async function loginEskizFromEnv(): Promise<string> {
+  const res = await fetch('/api/eskiz/login', { method: 'POST' })
+  if (!res.ok) {
+    let message = `Eskiz login failed (${res.status})`
+    try {
+      const body = await res.json()
+      if (body?.error) message = body.error
+    } catch {}
+    throw new Error(message)
+  }
+  const body = (await res.json()) as { token?: string }
+  if (!body.token) throw new Error('Eskiz: token missing in login response')
 
-  const res = await eskiz.post<EskizAuthResponse>('/auth/login', form, {
-    // Mark __skipAuth so the interceptor doesn't try to refresh on 401 here —
-    // a 401 on login means wrong credentials, not an expired token.
-    __skipAuth: true,
-    headers: { 'Content-Type': 'multipart/form-data' },
-  } as RetriableConfig)
-
-  const token = res.data?.data?.token
-  if (!token) throw new Error('Eskiz: token missing in login response')
-
-  useEskizStore.getState().setToken(token)
-  return token
+  useEskizStore.getState().setToken(body.token)
+  return body.token
 }
 
 // Refresh the current token. Uses the existing Bearer header (the interceptor
@@ -125,6 +124,14 @@ export async function refreshToken(): Promise<string> {
   return token
 }
 
+// One-shot bootstrap. Call on SMS page mount: ensures there's a usable token,
+// performing a server-side env login if the store is empty.
+export async function ensureToken(): Promise<string> {
+  const { token } = useEskizStore.getState()
+  if (token) return token
+  return loginEskizFromEnv()
+}
+
 // Proactive refresh — call before a known important request if you want to
 // avoid the 401-then-retry round-trip. Safe to call anytime; it's a no-op
 // when the stored token is still well within its 30-day window.
@@ -140,7 +147,7 @@ export async function ensureFreshToken(): Promise<void> {
     await refreshToken()
   } catch {
     // Refresh failed — let the next real request hit 401 and trigger the
-    // modal via clearToken(). Don't throw here.
+    // env-login fallback in the interceptor. Don't throw here.
   }
 }
 

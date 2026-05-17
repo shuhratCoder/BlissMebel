@@ -1,19 +1,14 @@
 
-import type { ApiResponse, Order } from '@/types'
 import { tStatic, useLangStore } from '@/lib/i18n'
 import { useAuthStore } from '@/store'
 
-// ── Base URLs ────────────────────────────────────────────────
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
+// ── Base URL ─────────────────────────────────────────────────
+// Mebel backend lives behind the `/mebel/*` Next.js rewrite (see next.config.js).
 const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_API_URL ?? '/mebel'
-const MOKKY_BASE = process.env.NEXT_PUBLIC_MOKKY_BASE ?? ''
 
-// ── Unified fetcher ──────────────────────────────────────────
-// One implementation, three exported clients (`api`, `mebelApi`, `externalApi`)
-// that differ only in (baseUrl, authed, envelope).
+// ── Fetcher ──────────────────────────────────────────────────
 interface CoreFetchOptions extends Omit<RequestInit, 'body'> {
   authed?: boolean
-  envelope?: boolean
   body?: BodyInit | object | null
 }
 
@@ -22,7 +17,7 @@ async function coreFetch<T>(
   path: string,
   options: CoreFetchOptions = {},
 ): Promise<T> {
-  const { authed = false, envelope = false, body, headers, ...rest } = options
+  const { authed = false, body, headers, ...rest } = options
 
   const token = authed ? useAuthStore.getState().token : null
 
@@ -61,12 +56,6 @@ async function coreFetch<T>(
     throw new Error(tStatic('errors.sessionExpired'))
   }
 
-  if (envelope) {
-    const json: ApiResponse<T> = await res.json()
-    if (!json.success) throw new Error(json.error ?? tStatic('errors.generic'))
-    return json.data as T
-  }
-
   if (!res.ok) {
     let message = tStatic('errors.code', { code: res.status })
     try {
@@ -80,7 +69,7 @@ async function coreFetch<T>(
   return res.json() as Promise<T>
 }
 
-function makeClient(baseUrl: string, opts: { authed: boolean; envelope: boolean }) {
+function makeClient(baseUrl: string, opts: { authed: boolean }) {
   const call = <T>(path: string, init: CoreFetchOptions = {}) =>
     coreFetch<T>(baseUrl, path, { ...opts, ...init })
   return {
@@ -93,18 +82,10 @@ function makeClient(baseUrl: string, opts: { authed: boolean; envelope: boolean 
   }
 }
 
-// `api` — generic backend with the `{ success, data }` envelope. Mostly legacy
-// callers (e.g. /api/sms/*). Authed by default.
-export const api = makeClient(BASE_URL, { authed: true, envelope: true })
-
 // `mebelApi` — real Mebel backend at /mebel/*. Authed; returns raw JSON.
-export const mebelApi = makeClient(AUTH_BASE, { authed: true, envelope: false })
+export const mebelApi = makeClient(AUTH_BASE, { authed: true })
 
-// `externalApi` — Mokky.dev test backend (full URLs). No auth, raw JSON.
-// `path` here is the FULL URL since callers pass `${MOKKY_BASE}/clients`.
-export const externalApi = makeClient('', { authed: false, envelope: false })
-
-// ── Login (no auth, no envelope) ─────────────────────────────
+// ── Login (no auth) ──────────────────────────────────────────
 export interface LoginResponse {
   token: string
   message: string
@@ -134,13 +115,6 @@ export async function loginRequest(
   return res.json() as Promise<LoginResponse>
 }
 
-// ── Mokky.dev URL helpers ────────────────────────────────────
-// Only defined when NEXT_PUBLIC_MOKKY_BASE is set. In production these should
-// be replaced by real /mebel endpoints and eventually removed.
-export const CLIENTS_API_URL = MOKKY_BASE ? `${MOKKY_BASE}/clients` : ''
-export const ORDERS_API_URL = MOKKY_BASE ? `${MOKKY_BASE}/orders` : ''
-export const PAYMENTS_API_URL = MOKKY_BASE ? `${MOKKY_BASE}/history` : ''
-
 // ── Query key factory ────────────────────────────────────────
 export const queryKeys = {
   products: {
@@ -148,66 +122,6 @@ export const queryKeys = {
     list: (filter: object) => ['products', 'list', filter] as const,
     detail: (id: string) => ['products', 'detail', id] as const,
   },
-  customers: {
-    all: ['customers'] as const,
-    list: (filter: object) => ['customers', 'list', filter] as const,
-    detail: (id: string) => ['customers', 'detail', id] as const,
-  },
-  purchases: {
-    all: ['purchases'] as const,
-  },
-  orders: {
-    all: ['orders'] as const,
-    list: (filter: object) => ['orders', 'list', filter] as const,
-    detail: (id: string) => ['orders', 'detail', id] as const,
-  },
-  payments: {
-    all: ['payments'] as const,
-    list: (filter: object) => ['payments', 'list', filter] as const,
-    detail: (id: string) => ['payments', 'detail', id] as const,
-  },
-  sms: {
-    logs: (filter: object) => ['sms', 'logs', filter] as const,
-  },
-}
-
-// ── Util: build query string ─────────────────────────────────
-export function buildQueryString(params: Record<string, unknown>): string {
-  const qs = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== '') {
-      qs.set(key, String(value))
-    }
-  }
-  return qs.toString() ? `?${qs.toString()}` : ''
-}
-
-// ── Debt helpers (debt is derived from Orders) ──────────────
-export function orderDebt(o: Pick<Order, 'totalAmount' | 'paidAmount'>): number {
-  return Math.max(0, (o.totalAmount ?? 0) - (o.paidAmount ?? 0))
-}
-
-export function customerTotalDebt(customerId: number, orders: Order[]): number {
-  return orders
-    .filter((o) => o.customerId === customerId)
-    .reduce((sum, o) => sum + orderDebt(o), 0)
-}
-
-export function customerOrders(customerId: number, orders: Order[]): Order[] {
-  return orders.filter((o) => o.customerId === customerId)
-}
-
-// Sequential (1-based) ordinals keyed by order.id — oldest gets #1.
-// Returns a stable map regardless of how the caller later sorts the list.
-export function buildOrderOrdinals(orders: Order[]): Map<number, number> {
-  const sorted = [...orders].sort((a, b) => {
-    const ta = a.createdAt ? new Date(a.createdAt).getTime() : a.id
-    const tb = b.createdAt ? new Date(b.createdAt).getTime() : b.id
-    return ta - tb
-  })
-  const m = new Map<number, number>()
-  sorted.forEach((o, i) => m.set(o.id, i + 1))
-  return m
 }
 
 // ── Phone helpers ────────────────────────────────────────────

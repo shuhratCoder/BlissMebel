@@ -102,118 +102,8 @@ export interface Client {
   updatedAt?: string
 }
 
-// ── Customer (CRM) — backed by mokky.dev external API ───────
-// Debts are derived from Orders, not stored on Customer.
-export type PaymentType = 'cash' | 'card' | 'transfer'
+// Payment-state filter used by /customers list ('debtor' = has outstanding debt).
 export type ClientStatus = 'debtor' | 'paid'
-
-export interface Customer {
-  id: number
-  name: string
-  phone: string
-  note?: string
-  // legacy fields kept optional so historical data still reads.
-  totalAmount?: number
-  remainingAmount?: number
-  deadline?: string
-  paymentType?: PaymentType
-  duty?: string | number
-  status?: string
-}
-
-// ── Payments (debt repayments) ──────────────────────────────
-export type PaymentMethod = 'cash' | 'account' | 'transfer'
-
-export interface Payment {
-  id: number
-  customerId: number
-  orderId: number
-  amount: number
-  method: PaymentMethod
-  comment?: string
-  // ISO date-time string of when the payment was recorded
-  createdAt: string
-  // snapshot — total customer debt right before this payment
-  debtBefore?: number
-}
-
-// ── Orders ──────────────────────────────────────────────────
-export type OrderStatus = 'new' | 'in_progress' | 'completed' | 'cancelled'
-
-export interface OrderItem {
-  productId: string
-  productName?: string // snapshot at order time
-  unit?: ProductUnit // snapshot at order time
-  quantity: number
-  price: number
-}
-
-export interface Order {
-  id: number
-  orderNumber?: string
-  customerId: number
-  customer?: Customer
-  items?: OrderItem[]
-  servicePrice?: number
-  totalAmount: number
-  paidAmount: number
-  status: OrderStatus
-  comment?: string
-  // Initial payment metadata (snapshot of the down-payment at create time)
-  paymentMethod?: PaymentMethod
-  // Deadline by which the remaining debt must be paid (ISO date)
-  deadline?: string
-  createdAt?: string
-}
-
-export interface OrderFilter {
-  search?: string
-  // Payment-state filter (not order workflow status).
-  payment?: 'all' | 'debtor' | 'paid'
-  page?: number
-  pageSize?: number
-}
-
-// ── SMS ─────────────────────────────────────────────────────
-export type SmsStatus = 'SENT' | 'DELIVERED' | 'FAILED' | 'PENDING' | 'SCHEDULED'
-
-export interface SmsLog {
-  id: string
-  customerId: string
-  customer?: Customer
-  phone: string
-  message: string
-  status: SmsStatus
-  sentAt?: string
-  failReason?: string
-  createdAt: string
-}
-
-export interface SmsSendFormData {
-  customerIds: string[]
-  message: string
-}
-
-// ── Pagination & Filters ────────────────────────────────────
-export interface PaginationMeta {
-  page: number
-  pageSize: number
-  total: number
-  totalPages: number
-}
-
-export interface PaginatedResponse<T> {
-  data: T[]
-  meta: PaginationMeta
-}
-
-// ── API Response ────────────────────────────────────────────
-export interface ApiResponse<T = unknown> {
-  success: boolean
-  data?: T
-  error?: string
-  message?: string
-}
 
 // ── Table / Filter helpers ──────────────────────────────────
 export interface ProductFilter {
@@ -229,9 +119,10 @@ export interface CustomerFilter {
   pageSize?: number
 }
 
-export interface SmsFilter {
+export interface OrderFilter {
   search?: string
-  status?: SmsStatus
+  // Payment-state filter (not order workflow status).
+  payment?: 'all' | 'debtor' | 'paid'
   page?: number
   pageSize?: number
 }

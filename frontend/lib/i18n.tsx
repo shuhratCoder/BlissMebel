@@ -421,6 +421,30 @@ const ru: Dict = {
   'val.amountPositive': 'Сумма должна быть больше 0',
   'val.amountExceedsDebt': 'Сумма превышает долг по заказу',
   'val.deadlinePast': 'Дата не может быть раньше сегодняшней',
+
+  // excel export
+  'export.button': 'Экспорт в Excel',
+  'export.from': 'С',
+  'export.to': 'По',
+  'export.invalidRange': 'Выберите корректный диапазон дат',
+  'export.tooltip': 'Скачать Excel',
+  'export.sheetName': 'Заказы',
+  'export.client': 'Клиент:',
+  'export.phone': 'Телефон:',
+  'export.totalDebt': 'Общий долг:',
+  'export.period': 'Период:',
+  'export.colNumber': '№ заказа',
+  'export.colDate': 'Дата и время',
+  'export.colProducts': 'Товары',
+  'export.colProductsSum': 'Сумма товаров',
+  'export.colService': 'Услуга',
+  'export.colTotal': 'Итого',
+  'export.colPaid': 'Оплачено',
+  'export.colDebt': 'Долг',
+  'export.colComment': 'Комментарий',
+  'export.totals': 'Итого',
+  'export.ordersCount': '{n} зак.',
+  'export.emptyRange': 'Нет заказов за выбранный период',
 }
 
 const uz: Dict = {
@@ -822,6 +846,30 @@ const uz: Dict = {
   'val.amountPositive': "Summa 0 dan katta bo'lishi kerak",
   'val.amountExceedsDebt': 'Summa buyurtma qarzidan oshmasligi kerak',
   'val.deadlinePast': "Sana bugundan oldin bo'lmasligi kerak",
+
+  // excel export
+  'export.button': 'Excelga eksport',
+  'export.from': 'Dan',
+  'export.to': 'Gacha',
+  'export.invalidRange': "To'g'ri sana oralig'ini tanlang",
+  'export.tooltip': 'Excel yuklab olish',
+  'export.sheetName': 'Buyurtmalar',
+  'export.client': 'Mijoz:',
+  'export.phone': 'Telefon:',
+  'export.totalDebt': 'Umumiy qarz:',
+  'export.period': 'Davr:',
+  'export.colNumber': '№ buyurtma',
+  'export.colDate': 'Sana va vaqt',
+  'export.colProducts': 'Mahsulotlar',
+  'export.colProductsSum': 'Mahsulotlar summasi',
+  'export.colService': 'Xizmat',
+  'export.colTotal': 'Jami',
+  'export.colPaid': "To'langan",
+  'export.colDebt': 'Qarz',
+  'export.colComment': 'Izoh',
+  'export.totals': 'Jami',
+  'export.ordersCount': '{n} buyurtma',
+  'export.emptyRange': "Tanlangan davr uchun buyurtmalar yo'q",
 }
 
 const DICTS: Record<Lang, Dict> = { ru, uz }

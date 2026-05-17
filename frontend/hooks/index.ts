@@ -1,8 +1,6 @@
 // hooks/index.ts
-// TanStack Query hooks for the modules in TZ:
-// - Customers (external mokky.dev API)
-// - Products / Inventory
-// - SMS
+// TanStack Query hooks for the mebel backend (products, clients, orders,
+// repayments). SMS sending goes directly through @/lib/eskiz, not React Query.
 
 import {
   useQuery,
@@ -10,29 +8,10 @@ import {
   useQueryClient,
   keepPreviousData,
 } from '@tanstack/react-query'
-import {
-  api,
-  externalApi,
-  mebelApi,
-  CLIENTS_API_URL,
-  ORDERS_API_URL,
-  PAYMENTS_API_URL,
-  queryKeys,
-  buildQueryString,
-} from '@/lib/api'
+import { mebelApi, queryKeys } from '@/lib/api'
 import { useUIStore } from '@/store'
 import { tStatic } from '@/lib/i18n'
-import type {
-  Product,
-  Customer,
-  Client,
-  ClientOrder,
-  Order,
-  Payment,
-  SmsLog,
-  PaginatedResponse,
-  SmsFilter,
-} from '@/types'
+import type { Product, Client, ClientOrder } from '@/types'
 
 const toast = () => useUIStore.getState().addToast
 
@@ -243,176 +222,6 @@ export function useCreateMebelOrder() {
       qc.invalidateQueries({ queryKey: clientsQueryKey })
       qc.invalidateQueries({ queryKey: queryKeys.products.all })
       toast()({ type: 'success', title: tStatic('toast.orderAdded') })
-    },
-    onError: (e: Error) => toast()({ type: 'error', title: e.message }),
-  })
-}
-
-// ─────────────────────────────────────────────────────────────
-// CUSTOMERS — backed by external mokky.dev API
-// ─────────────────────────────────────────────────────────────
-export function useCustomers() {
-  return useQuery({
-    queryKey: queryKeys.customers.all,
-    queryFn: () => externalApi.get<Customer[]>(CLIENTS_API_URL),
-    placeholderData: keepPreviousData,
-    staleTime: 15_000,
-  })
-}
-
-export function useCustomer(id: string | number) {
-  return useQuery({
-    queryKey: queryKeys.customers.detail(String(id)),
-    queryFn: () => externalApi.get<Customer>(`${CLIENTS_API_URL}/${id}`),
-    enabled: id !== undefined && id !== null && id !== '',
-  })
-}
-
-export function useCreateCustomer() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: Partial<Customer>) =>
-      externalApi.post<Customer>(CLIENTS_API_URL, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast()({ type: 'success', title: tStatic('toast.customerAdded') })
-    },
-    onError: (e: Error) => toast()({ type: 'error', title: e.message }),
-  })
-}
-
-export function useUpdateCustomer(id: string | number) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: Partial<Customer>) =>
-      externalApi.patch<Customer>(`${CLIENTS_API_URL}/${id}`, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast()({ type: 'success', title: tStatic('toast.customerUpdated') })
-    },
-    onError: (e: Error) => toast()({ type: 'error', title: e.message }),
-  })
-}
-
-export function useDeleteCustomer() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string | number) =>
-      externalApi.delete(`${CLIENTS_API_URL}/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast()({ type: 'success', title: tStatic('toast.customerDeleted') })
-    },
-    onError: (e: Error) => toast()({ type: 'error', title: e.message }),
-  })
-}
-
-// ─────────────────────────────────────────────────────────────
-// ORDERS — backed by external mokky.dev API
-// ─────────────────────────────────────────────────────────────
-export function useOrders() {
-  return useQuery({
-    queryKey: queryKeys.orders.all,
-    queryFn: () => externalApi.get<Order[]>(ORDERS_API_URL),
-    placeholderData: keepPreviousData,
-    staleTime: 15_000,
-  })
-}
-
-export function useOrder(id: string | number) {
-  return useQuery({
-    queryKey: queryKeys.orders.detail(String(id)),
-    queryFn: () => externalApi.get<Order>(`${ORDERS_API_URL}/${id}`),
-    enabled: id !== undefined && id !== null && id !== '',
-  })
-}
-
-export function useCreateOrder() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: Partial<Order>) =>
-      externalApi.post<Order>(ORDERS_API_URL, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.orders.all })
-      toast()({ type: 'success', title: tStatic('toast.orderAdded') })
-    },
-    onError: (e: Error) => toast()({ type: 'error', title: e.message }),
-  })
-}
-
-export function useUpdateOrder(id: string | number) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: Partial<Order>) =>
-      externalApi.patch<Order>(`${ORDERS_API_URL}/${id}`, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.orders.all })
-      toast()({ type: 'success', title: tStatic('toast.orderUpdated') })
-    },
-    onError: (e: Error) => toast()({ type: 'error', title: e.message }),
-  })
-}
-
-export function useDeleteOrder() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string | number) =>
-      externalApi.delete(`${ORDERS_API_URL}/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.orders.all })
-      toast()({ type: 'success', title: tStatic('toast.orderDeleted') })
-    },
-    onError: (e: Error) => toast()({ type: 'error', title: e.message }),
-  })
-}
-
-// ─────────────────────────────────────────────────────────────
-// PAYMENTS — backed by external mokky.dev API
-// ─────────────────────────────────────────────────────────────
-export function usePayments() {
-  return useQuery({
-    queryKey: queryKeys.payments.all,
-    queryFn: () => externalApi.get<Payment[]>(PAYMENTS_API_URL),
-    placeholderData: keepPreviousData,
-    staleTime: 10_000,
-  })
-}
-
-export function useCreatePayment() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: Partial<Payment>) =>
-      externalApi.post<Payment>(PAYMENTS_API_URL, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.payments.all })
-      qc.invalidateQueries({ queryKey: queryKeys.orders.all })
-      toast()({ type: 'success', title: tStatic('toast.paymentSaved') })
-    },
-    onError: (e: Error) => toast()({ type: 'error', title: e.message }),
-  })
-}
-
-// ─────────────────────────────────────────────────────────────
-// SMS
-// ─────────────────────────────────────────────────────────────
-export function useSmsLogs(filter: SmsFilter) {
-  return useQuery({
-    queryKey: queryKeys.sms.logs(filter),
-    queryFn: () =>
-      api.get<PaginatedResponse<SmsLog>>(
-        `/api/sms${buildQueryString(filter as Record<string, unknown>)}`,
-      ),
-    placeholderData: keepPreviousData,
-  })
-}
-
-export function useSendSms() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: unknown) => api.post('/api/sms/send', data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['sms'] })
-      toast()({ type: 'success', title: tStatic('toast.smsSent') })
     },
     onError: (e: Error) => toast()({ type: 'error', title: e.message }),
   })

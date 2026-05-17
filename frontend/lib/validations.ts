@@ -45,20 +45,7 @@ export const buildPurchaseSchema = (t: T) =>
 
 export type PurchaseFormData = z.infer<ReturnType<typeof buildPurchaseSchema>>
 
-// ── Customer ─────────────────────────────────────────────────
-export const buildCustomerSchema = (t: T) =>
-  z.object({
-    name: z.string().min(2, t('val.minChars', { n: 2 })).max(200, t('val.maxChars', { n: 200 })),
-    // Canonical form: "+998" + exactly 9 digits.
-    phone: z
-      .string()
-      .regex(/^\+998\d{9}$/, t('val.phoneFormat')),
-    note: z.string().max(500, t('val.maxChars', { n: 500 })).optional().or(z.literal('')),
-  })
-
-export type CustomerFormData = z.infer<ReturnType<typeof buildCustomerSchema>>
-
-// ── Client (new mebel backend) ──────────────────────────────
+// ── Client (mebel backend) ──────────────────────────────────
 // description replaces note; phone canonical +998XXXXXXXXX.
 export const buildClientSchema = (t: T) =>
   z.object({
@@ -76,47 +63,3 @@ export const buildClientSchema = (t: T) =>
 
 export type ClientFormData = z.infer<ReturnType<typeof buildClientSchema>>
 
-// ── Payment (debt repayment) ─────────────────────────────────
-export const buildPaymentSchema = (t: T) =>
-  z.object({
-    customerId: z.coerce
-      .number({ invalid_type_error: t('val.chooseClient') })
-      .int(t('val.integer'))
-      .min(1, t('val.chooseClient')),
-    orderId: z.coerce
-      .number({ invalid_type_error: t('val.chooseOrder') })
-      .int(t('val.integer'))
-      .min(1, t('val.chooseOrder')),
-    amount: z
-      .number({ invalid_type_error: t('val.enterNumber') })
-      .int(t('val.integer'))
-      .positive(t('val.amountPositive')),
-    method: z.enum(['cash', 'account', 'transfer'], {
-      errorMap: () => ({ message: t('val.chooseMethod') }),
-    }),
-    comment: z.string().max(500, t('val.maxChars', { n: 500 })).optional().or(z.literal('')),
-  })
-
-export type PaymentFormData = z.infer<ReturnType<typeof buildPaymentSchema>>
-
-// ── Order ────────────────────────────────────────────────────
-// The OrderForm uses manual validation because of dynamic line items,
-// the partial-payment branch, and cross-field checks (paid ≤ total).
-// We keep just a tiny schema so other surfaces (status badges, future
-// edit-only forms) can reuse it if needed.
-export const buildOrderStatusSchema = (t: T) =>
-  z.enum(['new', 'in_progress', 'completed', 'cancelled'], {
-    errorMap: () => ({ message: t('val.chooseStatus') }),
-  })
-
-// ── SMS Send ─────────────────────────────────────────────────
-export const buildSmsSendSchema = (t: T) =>
-  z.object({
-    customerIds: z.array(z.string()).min(1, t('val.chooseAtLeastOneClient')),
-    message: z
-      .string()
-      .min(5, t('val.minChars', { n: 5 }))
-      .max(500, t('val.maxChars', { n: 500 })),
-  })
-
-export type SmsSendFormData = z.infer<ReturnType<typeof buildSmsSendSchema>>
